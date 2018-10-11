@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+
+function delete_subnets() {
+    region=$1
+    vpc=$2
+    subnets=$(aws --region "$region" ec2 describe-subnets \
+        --filters "Name=vpcId,Values=$vpc" \
+        | jq -r '.Subnets[].SubnetId')
+    for subnet in $subnets; do
+        aws --region "$region" ec2 delete-subnet --subnet-id "$subnet"
+    done
+}
+
+function delete_igws() {
+    region=$1
+    vpc=$2
+    igws=$(aws --region "$region" ec2 describe-internet-gateways \
+        --filters "Name=attachment.vpc-id,Values=$vpc" \
+        | jq -r '.InternetGateways[].InternetGatewayId')
+    for igw in $igws; do
+        aws --region "$region" ec2 detach-internet-gateway \
+            --internet-gateway-id "$igw" --vpc-id "$vpc"
+        aws --region "$region" ec2 delete-internet-gateway \
+            --internet-gateway-id "$igw"
+    done
+}
+
+if ! aws --version &>/dev/null; then
+    echo "Please install aws cli"
+    exit 1
+fi
+if ! jq --version &>/dev/null; then
+    echo "Please install jq"
+    exit 1
+fi
+
+regions=$(aws ec2 describe-regions | jq -r '.Regions[].RegionName')
+for region in $regions; do
+    vpc=$(aws --region "$region" ec2 describe-vpcs \
+        --filters "Name=isDefault,Values=true" \
+        | jq -r '.Vpcs[].VpcId')
+
+    if [ "$vpc" == "" ]; then
+        echo "No default VPC in $region"
+    else
+        echo "Removing default resources in $region"
+        # In case a subnet is in use we don't want to delete the igw.
+        delete_subnets "$region" "$vpc"
+        delete_igws "$region" "$vpc"
+        aws --region "$region" ec2 delete-vpc --vpc-id "$vpc"
+        echo "Removed default VPC $vpc in $region"
+    fi
+done
