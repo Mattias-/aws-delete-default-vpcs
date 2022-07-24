@@ -15,7 +15,7 @@ function main() {
 
         case $key in
         --dry-run)
-            export dry_run=true
+            dry_run=true
             shift
             ;;
         --no-async)
@@ -30,11 +30,11 @@ function main() {
         esac
     done
 
-    pids=()
     regions=$(aws ec2 describe-regions \
         --query 'Regions[].RegionName | sort(@)' \
         --output text)
     if $async; then
+        pids=()
         for region in $regions; do
             delete_default_vpc "$region" &
             pids+=($!)
